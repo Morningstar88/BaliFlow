@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GitHub Commits (Vanilla JS)</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; margin: 0; background: #f8f9fa; }
+    .header { background: #24292e; color: white; padding: 1rem; position: sticky; top: 0; z-index: 10; }
+    .header h1 { margin: 0; font-size: 1.2rem; text-align: center; }
+    .list { padding: 0; margin: 0; }
+    .item { padding: 1rem; border-bottom: 1px solid #e1e4e8; background: white; }
+    .item h3 { margin: 0; font-size: 1rem; line-height: 1.4; }
+    .item p { margin: 0.5rem 0 0; color: #586069; font-size: 0.85rem; }
+    .loader { padding: 1rem; text-align: center; color: #586069; }
+    a { color: #0366d6; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>GitHub Commits (Ionic Repo)</h1>
+  </div>
+  
+  <div id="commit-list" class="list"></div>
+  <div id="loader" class="loader">Loading commits...</div>
+
+  <script>
+    // State
+    let page = 1;
+    let more = true;
+    let isLoading = false;
+
+    // DOM Elements
+    const commitList = document.getElementById('commit-list');
+    const loader = document.getElementById('loader');
+
+    // Linkify GitHub issue/PR numbers
+    const linkifyText = (text) => {
+      return text.replace(/#(\d+)/gmi, 
+        '<a href="https://github.com/driftyco/ionic/issues/$1" target="_blank">#$1</a>'
+      );
+    };
+
+    // Format date (e.g., "Mar 31, 2025, 2:15 PM")
+    const formatDate = (dateStr) => {
+      return new Date(dateStr).toLocaleString(undefined, {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+    };
+
+    // Fetch GitHub commits
+    const loadCommits = async () => {
+      if (!more || isLoading) return;
+      
+      isLoading = true;
+      loader.textContent = "Loading...";
+
+      try {
+        const response = await fetch(
+          `https://api.github.com/repos/driftyco/ionic/commits?page=${page}`,
+          { headers: { 'Accept': 'application/vnd.github.v3+json' } }
+        );
+        
+        if (!response.ok) throw response;
+        
+        const commits = await response.json();
+        const hasMore = response.headers.get('link')?.includes('rel="next"');
+        
+        // Render commits with DocumentFragment (optimized)
+        const fragment = document.createDocumentFragment();
+        
+        commits.forEach(commit => {
+          const item = document.createElement('div');
+          item.className = 'item';
+          item.innerHTML = `
+            <h3>${linkifyText(commit.commit.message.split('\n')[0])}</h3>
+            <p>${commit.commit.author.name} • ${formatDate(commit.commit.author.date)}</p>
+          `;
+          fragment.appendChild(item);
+        });
+        
+        commitList.appendChild(fragment);
+        
+        // Update state
+        more = hasMore;
+        page++;
+        
+      } catch (err) {
+        more = false;
+        let errorMsg = 'Failed to load commits.';
+        
+        if (err.headers?.get('x-ratelimit-remaining') === '0') {
+          const resetTime = new Date(parseInt(err.headers.get('x-ratelimit-reset')) * 1000);
+          errorMsg = `GitHub rate limit exceeded. Try again after ${formatDate(resetTime)}.`;
+        }
+        
+        loader.textContent = errorMsg;
+        console.error(errorMsg, err);
+        
+      } finally {
+        isLoading = false;
+        if (!more) loader.style.display = 'none';
+      }
+    };
+
+    // Infinite scroll with Intersection Observer
+    const observer = new IntersectionObserver((entries) => {
+      if (entries[0].isIntersecting) loadCommits();
+    }, { threshold: 0.1 });
+
+    observer.observe(loader);
+
+    // Initial load
+    loadCommits();
+  </script>
+</body>
+</html>
